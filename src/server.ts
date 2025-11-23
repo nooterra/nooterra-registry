@@ -6,6 +6,7 @@ import { pool, migrate } from "./db.js";
 import { embed } from "./embeddings.js";
 import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent, qdrant } from "./qdrant.js";
 import { randomUUID } from "crypto";
+import pino from "pino";
 
 dotenv.config();
 
@@ -13,8 +14,16 @@ const API_KEY = process.env.REGISTRY_API_KEY;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 
-const app = Fastify({ logger: true });
-await app.register(cors, { origin: true });
+const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+  transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
+});
+
+const app = Fastify({
+  logger,
+  bodyLimit: 512 * 1024, // 512kb
+});
+await app.register(cors, { origin: process.env.CORS_ORIGIN || "*" });
 
 await migrate();
 await ensureCollection();
@@ -171,7 +180,8 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
 
 app.setErrorHandler((err, _req, reply) => {
   // Log full error and return structured JSON
-  app.log.error({ err });
+  const rid = (_req as any)?.headers?.["x-request-id"];
+  app.log.error({ err, request_id: rid });
   const status = (err as any).statusCode || 500;
   return reply.status(status).send({
     error: err.message,
