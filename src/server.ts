@@ -84,12 +84,12 @@ app.post("/v1/agent/discovery", async (request, reply) => {
   if (hits.length) {
     const dids = hits.map((h) => h.payload?.agentDid).filter(Boolean) as string[];
     if (dids.length) {
-      const rows = await pool.query(
+      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null }>(
         `select did, name, endpoint from agents where did = any($1::text[])`,
         [dids]
       );
-      rows.rows.forEach((row) => {
-        agents[row.did] = { did: row.did, name: row.name, endpoint: row.endpoint };
+      rows.rows.forEach((row: { did: string; name: string | null; endpoint: string | null }) => {
+        agents[row.did] = { did: row.did, name: row.name, endpoint: row.endpoint ?? null };
       });
     }
   }
@@ -104,6 +104,10 @@ app.post("/v1/agent/discovery", async (request, reply) => {
   }));
 
   return reply.send({ results });
+});
+
+app.get("/health", async (_req, reply) => {
+  return reply.send({ ok: true });
 });
 
 const port = Number(process.env.PORT || 3001);
