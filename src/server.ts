@@ -117,6 +117,17 @@ app.post("/v1/agent/discovery", async (request, reply) => {
   return reply.send({ results });
 });
 
+app.setErrorHandler((err, _req, reply) => {
+  // Log full error and return structured JSON
+  app.log.error(err);
+  const status = (err as any).statusCode || 500;
+  return reply.status(status).send({
+    error: err.message,
+    statusCode: status,
+    validation: (err as any).validation,
+  });
+});
+
 app.get("/health", async (_req, reply) => {
   return reply.send({ ok: true });
 });
