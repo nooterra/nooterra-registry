@@ -129,7 +129,7 @@ app.post("/v1/agent/discovery", async (request, reply) => {
 
 app.setErrorHandler((err, _req, reply) => {
   // Log full error and return structured JSON
-  app.log.error(err);
+  app.log.error({ err });
   const status = (err as any).statusCode || 500;
   return reply.status(status).send({
     error: err.message,

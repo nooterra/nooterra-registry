@@ -49,6 +49,8 @@ export async function upsertCapability(payload: {
     });
   } catch (err: any) {
     const detail = err?.response?.data || err?.message || err;
+    // eslint-disable-next-line no-console
+    console.error("Qdrant upsert error", detail);
     throw new Error(`Qdrant upsert failed: ${JSON.stringify(detail)}`);
   }
 }
