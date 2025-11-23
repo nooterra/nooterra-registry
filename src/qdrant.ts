@@ -18,13 +18,14 @@ export async function ensureCollection() {
       },
     });
   } else {
-    // Ensure params match
+    // Ensure params match and reset if needed
     await qdrant.updateCollection(COLLECTION, {
       vectors: {
         size: VECTOR_SIZE,
         distance: "Cosine",
       },
     } as any);
+    // Optionally, we could clean existing points if incompatible; leave as-is for now.
   }
 }
 
