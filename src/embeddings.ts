@@ -7,6 +7,7 @@ let embedderPromise: Promise<any> | null = null;
 
 async function getEmbedder(model = process.env.EMBED_MODEL || "Xenova/all-MiniLM-L6-v2") {
   if (!embedderPromise) {
+    console.log(`Loading embedder model: ${model}`);
     embedderPromise = pipeline("feature-extraction", model);
   }
   return embedderPromise;

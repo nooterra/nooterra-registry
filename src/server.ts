@@ -31,39 +31,45 @@ const registerSchema = z.object({
 app.post("/v1/agent/register", async (request, reply) => {
   const parse = registerSchema.safeParse(request.body);
   if (!parse.success) {
-    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid register payload" });
+    return reply
+      .status(400)
+      .send({ error: parse.error.flatten(), message: "Invalid register payload" });
   }
   const { did, name, endpoint, capabilities } = parse.data;
 
-  await pool.query(
-    `insert into agents (did, name, endpoint) values ($1, $2, $3)
-     on conflict (did) do update set name = excluded.name, endpoint = excluded.endpoint`,
-    [did, name || null, endpoint || null]
-  );
-
-  // replace capabilities for this agent
-  await pool.query(`delete from capabilities where agent_did = $1`, [did]);
-  await deleteByAgent(did);
-
-  for (const cap of capabilities) {
-    const capId = cap.capabilityId || randomUUID();
-    const vector = await embed(cap.description);
-    await upsertCapability({
-      id: createHash("sha256").update(did + capId).digest("hex"),
-      agentDid: did,
-      capabilityId: capId,
-      description: cap.description,
-      tags: cap.tags,
-      vector,
-    });
+  try {
     await pool.query(
-      `insert into capabilities (agent_did, capability_id, description, tags)
-       values ($1, $2, $3, $4)`,
-      [did, capId, cap.description, cap.tags || []]
+      `insert into agents (did, name, endpoint) values ($1, $2, $3)
+     on conflict (did) do update set name = excluded.name, endpoint = excluded.endpoint`,
+      [did, name || null, endpoint || null]
     );
-  }
 
-  return reply.send({ ok: true, registered: capabilities.length });
+    // replace capabilities for this agent
+    await pool.query(`delete from capabilities where agent_did = $1`, [did]);
+    await deleteByAgent(did);
+
+    for (const cap of capabilities) {
+      const capId = cap.capabilityId || randomUUID();
+      const vector = await embed(cap.description);
+      await upsertCapability({
+        id: createHash("sha256").update(did + capId).digest("hex"),
+        agentDid: did,
+        capabilityId: capId,
+        description: cap.description,
+        tags: cap.tags,
+        vector,
+      });
+      await pool.query(
+        `insert into capabilities (agent_did, capability_id, description, tags)
+       values ($1, $2, $3, $4)`,
+        [did, capId, cap.description, cap.tags || []]
+      );
+    }
+    return reply.send({ ok: true, registered: capabilities.length });
+  } catch (err: any) {
+    app.log.error({ err }, "register error");
+    return reply.status(500).send({ error: err.message || "Internal error", statusCode: 500 });
+  }
 });
 
 const searchSchema = z.object({
