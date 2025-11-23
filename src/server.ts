@@ -36,6 +36,19 @@ app.addHook("onRequest", async (request, reply) => {
     randomUUID();
   request.headers["x-request-id"] = rid;
   reply.header("x-request-id", rid);
+  (request as any).startTime = Date.now();
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  const rid = (request.headers as any)["x-request-id"];
+  const duration = (Date.now() - ((request as any).startTime || Date.now()));
+  app.log.info({
+    request_id: rid,
+    method: request.method,
+    url: request.url,
+    statusCode: reply.statusCode,
+    duration_ms: duration,
+  });
 });
 
 const capabilitySchema = z.object({
@@ -164,6 +177,8 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
     const description =
       typeof hit.payload?.description === "string" ? hit.payload.description : undefined;
     const tags = Array.isArray(hit.payload?.tags) ? hit.payload.tags : undefined;
+    const reputation =
+      typeof hit.payload?.reputation === "number" ? hit.payload.reputation : hit.payload?.rep || null;
 
     return {
       score: hit.score,
@@ -171,6 +186,7 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       capabilityId,
       description,
       tags,
+      reputation: reputation ?? null,
       agent: agentDid ? agents[agentDid] || null : null,
     };
   });
