@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import { pool, migrate } from "./db.js";
 import { embed } from "./embeddings.js";
-import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent } from "./qdrant.js";
+import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent, qdrant } from "./qdrant.js";
 import { randomUUID } from "crypto";
 
 dotenv.config();
@@ -19,10 +19,20 @@ await app.register(cors, { origin: true });
 await migrate();
 await ensureCollection();
 
+// request/trace id propagation
+app.addHook("onRequest", async (request, reply) => {
+  const rid =
+    (request.headers["x-request-id"] as string | undefined) ||
+    (request.headers["x-correlation-id"] as string | undefined) ||
+    randomUUID();
+  request.headers["x-request-id"] = rid;
+  reply.header("x-request-id", rid);
+});
+
 const capabilitySchema = z.object({
   capabilityId: z.string().optional(),
-  description: z.string(),
-  tags: z.array(z.string()).optional(),
+  description: z.string().min(1).max(500),
+  tags: z.array(z.string().max(64)).max(10).optional(),
 });
 
 const registerSchema = z.object({
@@ -172,7 +182,13 @@ app.setErrorHandler((err, _req, reply) => {
 });
 
 app.get("/health", async (_req, reply) => {
-  return reply.send({ ok: true });
+  try {
+    await pool.query("select 1");
+    await qdrant.getCollections();
+    return reply.send({ ok: true });
+  } catch (err: any) {
+    return reply.status(503).send({ ok: false, error: err.message || "Unhealthy" });
+  }
 });
 
 const port = Number(process.env.PORT || 3001);
