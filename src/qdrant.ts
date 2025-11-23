@@ -10,18 +10,19 @@ export const qdrant = new QdrantClient({
 export async function ensureCollection() {
   const collections = await qdrant.getCollections();
   const exists = collections.collections.some((c) => c.name === COLLECTION);
-
-  // Always force a clean, known-good collection shape (size 384, cosine) to avoid schema drift.
-  if (exists) {
-    await qdrant.deleteCollection(COLLECTION);
+  if (!exists) {
+    await qdrant.createCollection(COLLECTION, {
+      vectors: {
+        size: VECTOR_SIZE,
+        distance: "Cosine",
+      },
+    });
+  } else {
+    // ensure schema matches; update if needed
+    await qdrant.updateCollection(COLLECTION, {
+      vectors: { size: VECTOR_SIZE, distance: "Cosine" },
+    });
   }
-
-  await qdrant.createCollection(COLLECTION, {
-    vectors: {
-      size: VECTOR_SIZE,
-      distance: "Cosine",
-    },
-  });
 }
 
 export async function upsertCapability(payload: {

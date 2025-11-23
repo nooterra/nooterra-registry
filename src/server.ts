@@ -39,7 +39,7 @@ const registerSchema = z.object({
   did: z.string(),
   name: z.string().optional(),
   endpoint: z.string().optional(),
-  capabilities: z.array(capabilitySchema).min(1),
+  capabilities: z.array(capabilitySchema).min(1).max(25),
 });
 
 const apiGuard = async (request: any, reply: any) => {
