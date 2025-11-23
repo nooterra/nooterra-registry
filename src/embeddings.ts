@@ -1,23 +1,17 @@
-import { pipeline, env } from "@xenova/transformers";
+import { createHash } from "crypto";
 
-env.allowLocalModels = true;
-env.backends.onnx.wasm.wasmPaths = env.backends.onnx.wasm.wasmPaths ?? {};
+const VECTOR_SIZE = 384;
 
-let embedderPromise: Promise<any> | null = null;
-
-async function getEmbedder(model = process.env.EMBED_MODEL || "Xenova/all-MiniLM-L6-v2") {
-  if (!embedderPromise) {
-    console.log(`Loading embedder model: ${model}`);
-    embedderPromise = pipeline("feature-extraction", model);
-  }
-  return embedderPromise;
-}
-
+// Deterministic lightweight embedder to avoid external model fetches.
 export async function embed(text: string): Promise<number[]> {
-  const embedder = await getEmbedder();
-  const output = await embedder(text, {
-    pooling: "mean",
-    normalize: true,
-  });
-  return Array.from(output.data);
+  const hash = createHash("sha256").update(text).digest();
+  const vector: number[] = new Array(VECTOR_SIZE);
+  for (let i = 0; i < VECTOR_SIZE; i++) {
+    const byte = hash[i % hash.length];
+    // map byte 0-255 to -1..1
+    vector[i] = (byte / 127.5) - 1;
+  }
+  // normalize
+  const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+  return vector.map((v) => v / norm);
 }
