@@ -31,7 +31,7 @@ const registerSchema = z.object({
 app.post("/v1/agent/register", async (request, reply) => {
   const parse = registerSchema.safeParse(request.body);
   if (!parse.success) {
-    return reply.status(400).send({ error: parse.error.flatten() });
+    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid register payload" });
   }
   const { did, name, endpoint, capabilities } = parse.data;
 
@@ -74,7 +74,7 @@ const searchSchema = z.object({
 app.post("/v1/agent/discovery", async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
-    return reply.status(400).send({ error: parse.error.flatten() });
+    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid search payload" });
   }
   const { query, limit = 5 } = parse.data;
   const vector = await embed(query);
