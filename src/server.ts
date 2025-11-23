@@ -68,7 +68,11 @@ app.post("/v1/agent/register", async (request, reply) => {
     return reply.send({ ok: true, registered: capabilities.length });
   } catch (err: any) {
     app.log.error({ err }, "register error");
-    return reply.status(500).send({ error: err.message || "Internal error", statusCode: 500 });
+    return reply.status(500).send({
+      error: err.message || "Internal error",
+      statusCode: 500,
+      details: err?.response?.data ?? err?.stack ?? err,
+    });
   }
 });
 
@@ -131,6 +135,7 @@ app.setErrorHandler((err, _req, reply) => {
     error: err.message,
     statusCode: status,
     validation: (err as any).validation,
+    details: (err as any).stack || err,
   });
 });
 
