@@ -82,7 +82,9 @@ app.post("/v1/agent/discovery", async (request, reply) => {
 
   const agents: Record<string, { did: string; name: string | null; endpoint: string | null }> = {};
   if (hits.length) {
-    const dids = hits.map((h) => h.payload?.agentDid).filter(Boolean) as string[];
+    const dids = hits
+      .map((h: any) => h.payload?.agentDid)
+      .filter((v: unknown): v is string => typeof v === "string");
     if (dids.length) {
       const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null }>(
         `select did, name, endpoint from agents where did = any($1::text[])`,
@@ -94,14 +96,23 @@ app.post("/v1/agent/discovery", async (request, reply) => {
     }
   }
 
-  const results = hits.map((hit) => ({
-    score: hit.score,
-    agentDid: hit.payload?.agentDid,
-    capabilityId: hit.payload?.capabilityId,
-    description: hit.payload?.description,
-    tags: hit.payload?.tags,
-    agent: hit.payload?.agentDid ? agents[hit.payload.agentDid] || null : null,
-  }));
+  const results = hits.map((hit: any) => {
+    const agentDid = typeof hit.payload?.agentDid === "string" ? hit.payload.agentDid : undefined;
+    const capabilityId =
+      typeof hit.payload?.capabilityId === "string" ? hit.payload.capabilityId : undefined;
+    const description =
+      typeof hit.payload?.description === "string" ? hit.payload.description : undefined;
+    const tags = Array.isArray(hit.payload?.tags) ? hit.payload.tags : undefined;
+
+    return {
+      score: hit.score,
+      agentDid,
+      capabilityId,
+      description,
+      tags,
+      agent: agentDid ? agents[agentDid] || null : null,
+    };
+  });
 
   return reply.send({ results });
 });
