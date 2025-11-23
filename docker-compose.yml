@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  registry:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      - qdrant
+      - postgres
+    ports:
+      - "3001:3001"
+  qdrant:
+    image: qdrant/qdrant:v1.12.3
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nooterra
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+volumes:
+  qdrant_data:
+  pg_data:
