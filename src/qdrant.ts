@@ -28,20 +28,25 @@ export async function upsertCapability(payload: {
   tags?: string[];
   vector: number[];
 }) {
-  await qdrant.upsert(COLLECTION, {
-    points: [
-      {
-        id: payload.id,
-        vector: payload.vector,
-        payload: {
-          agentDid: payload.agentDid,
-          capabilityId: payload.capabilityId,
-          description: payload.description,
-          tags: payload.tags || [],
+  try {
+    await qdrant.upsert(COLLECTION, {
+      points: [
+        {
+          id: payload.id,
+          vector: payload.vector,
+          payload: {
+            agentDid: payload.agentDid,
+            capabilityId: payload.capabilityId,
+            description: payload.description,
+            tags: payload.tags || [],
+          },
         },
-      },
-    ],
-  });
+      ],
+    });
+  } catch (err: any) {
+    const detail = err?.response?.data || err?.message || err;
+    throw new Error(`Qdrant upsert failed: ${JSON.stringify(detail)}`);
+  }
 }
 
 export async function searchCapabilities(queryVector: number[], limit = 5) {
