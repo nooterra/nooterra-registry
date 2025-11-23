@@ -17,6 +17,14 @@ export async function ensureCollection() {
         distance: "Cosine",
       },
     });
+  } else {
+    // Ensure params match
+    await qdrant.updateCollection(COLLECTION, {
+      vectors: {
+        size: VECTOR_SIZE,
+        distance: "Cosine",
+      },
+    } as any);
   }
 }
 
