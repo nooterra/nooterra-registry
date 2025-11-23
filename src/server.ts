@@ -5,7 +5,7 @@ import { z } from "zod";
 import { pool, migrate } from "./db.js";
 import { embed } from "./embeddings.js";
 import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent } from "./qdrant.js";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID } from "crypto";
 
 dotenv.config();
 
@@ -49,15 +49,15 @@ app.post("/v1/agent/register", async (request, reply) => {
     await deleteByAgent(did);
 
     for (const cap of capabilities) {
-      const capId = cap.capabilityId || randomUUID();
-      const vector = await embed(cap.description);
-      await upsertCapability({
-        id: createHash("sha256").update(did + capId).digest("hex"),
-        agentDid: did,
-        capabilityId: capId,
-        description: cap.description,
-        tags: cap.tags,
-        vector,
+    const capId = cap.capabilityId || randomUUID();
+    const vector = await embed(cap.description);
+    await upsertCapability({
+      id: randomUUID(),
+      agentDid: did,
+      capabilityId: capId,
+      description: cap.description,
+      tags: cap.tags,
+      vector,
       });
       await pool.query(
         `insert into capabilities (agent_did, capability_id, description, tags)
