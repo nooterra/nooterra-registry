@@ -1,6 +1,5 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
 import dotenv from "dotenv";
 import { z } from "zod";
 import { pool, migrate } from "./db.js";
@@ -11,18 +10,11 @@ import { randomUUID } from "crypto";
 dotenv.config();
 
 const API_KEY = process.env.REGISTRY_API_KEY;
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
-await app.register(rateLimit, {
-  max: 60,
-  timeWindow: "1 minute",
-  ban: 0,
-  allowList: (req) => {
-    // always allow if no key is configured (dev) or health checks
-    return !API_KEY || req.url === "/health";
-  },
-});
 
 await migrate();
 await ensureCollection();
@@ -48,7 +40,27 @@ const apiGuard = async (request: any, reply: any) => {
   }
 };
 
-app.post("/v1/agent/register", { preHandler: apiGuard }, async (request, reply) => {
+const rateBucket = new Map<string, { count: number; resetAt: number }>();
+const rateLimitGuard = async (request: any, reply: any) => {
+  const ip =
+    (request.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    request.ip ||
+    "unknown";
+  const now = Date.now();
+  const bucket = rateBucket.get(ip);
+  if (!bucket || now > bucket.resetAt) {
+    rateBucket.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return;
+  }
+  if (bucket.count >= RATE_LIMIT_MAX) {
+    const retry = Math.max(0, Math.ceil((bucket.resetAt - now) / 1000));
+    reply.header("Retry-After", retry);
+    return reply.status(429).send({ error: "Rate limit exceeded", retryAfterSeconds: retry });
+  }
+  bucket.count += 1;
+};
+
+app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = registerSchema.safeParse(request.body);
   if (!parse.success) {
     return reply
@@ -101,7 +113,7 @@ const searchSchema = z.object({
   limit: z.number().int().positive().max(50).optional(),
 });
 
-app.post("/v1/agent/discovery", { preHandler: apiGuard }, async (request, reply) => {
+app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
     return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid search payload" });
