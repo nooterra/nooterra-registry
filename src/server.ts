@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import dotenv from "dotenv";
 import { z } from "zod";
 import { pool, migrate } from "./db.js";
@@ -9,8 +10,19 @@ import { randomUUID } from "crypto";
 
 dotenv.config();
 
+const API_KEY = process.env.REGISTRY_API_KEY;
+
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
+await app.register(rateLimit, {
+  max: 60,
+  timeWindow: "1 minute",
+  ban: 0,
+  allowList: (req) => {
+    // always allow if no key is configured (dev) or health checks
+    return !API_KEY || req.url === "/health";
+  },
+});
 
 await migrate();
 await ensureCollection();
@@ -28,7 +40,15 @@ const registerSchema = z.object({
   capabilities: z.array(capabilitySchema).min(1),
 });
 
-app.post("/v1/agent/register", async (request, reply) => {
+const apiGuard = async (request: any, reply: any) => {
+  if (!API_KEY) return;
+  const provided = request.headers["x-api-key"];
+  if (provided !== API_KEY) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+};
+
+app.post("/v1/agent/register", { preHandler: apiGuard }, async (request, reply) => {
   const parse = registerSchema.safeParse(request.body);
   if (!parse.success) {
     return reply
@@ -81,7 +101,7 @@ const searchSchema = z.object({
   limit: z.number().int().positive().max(50).optional(),
 });
 
-app.post("/v1/agent/discovery", async (request, reply) => {
+app.post("/v1/agent/discovery", { preHandler: apiGuard }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
     return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid search payload" });
