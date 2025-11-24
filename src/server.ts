@@ -159,18 +159,18 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
   const vector = await embed(query);
   const hits = await searchCapabilities(vector, limit);
 
-  const agents: Record<string, { did: string; name: string | null; endpoint: string | null }> = {};
+  const agents: Record<string, { did: string; name: string | null; endpoint: string | null; reputation: number | null }> = {};
   if (hits.length) {
     const dids = hits
       .map((h: any) => h.payload?.agentDid)
       .filter((v: unknown): v is string => typeof v === "string");
     if (dids.length) {
-      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null }>(
-        `select did, name, endpoint from agents where did = any($1::text[])`,
+      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null; reputation: number | null }>(
+        `select did, name, endpoint, reputation from agents where did = any($1::text[])`,
         [dids]
       );
-      rows.rows.forEach((row: { did: string; name: string | null; endpoint: string | null }) => {
-        agents[row.did] = { did: row.did, name: row.name, endpoint: row.endpoint ?? null };
+      rows.rows.forEach((row) => {
+        agents[row.did] = { did: row.did, name: row.name, endpoint: row.endpoint ?? null, reputation: row.reputation ?? null };
       });
     }
   }
@@ -183,7 +183,9 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       typeof hit.payload?.description === "string" ? hit.payload.description : undefined;
     const tags = Array.isArray(hit.payload?.tags) ? hit.payload.tags : undefined;
     const reputation =
-      typeof hit.payload?.reputation === "number" ? hit.payload.reputation : hit.payload?.rep || null;
+      typeof hit.payload?.reputation === "number"
+        ? hit.payload.reputation
+        : hit.payload?.rep || (agentDid ? agents[agentDid]?.reputation ?? null : null);
 
     return {
       score: hit.score,

@@ -12,6 +12,7 @@ export async function migrate() {
       did text primary key,
       name text,
       endpoint text,
+      reputation numeric default 0,
       created_at timestamptz default now()
     );
   `);
@@ -26,4 +27,6 @@ export async function migrate() {
       created_at timestamptz default now()
     );
   `);
+
+  await pool.query(`alter table agents add column if not exists reputation numeric default 0;`);
 }
