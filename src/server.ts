@@ -14,7 +14,9 @@ const API_KEY = process.env.REGISTRY_API_KEY;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 const SIM_WEIGHT = Number(process.env.SEARCH_WEIGHT_SIM || 0.7);
-const REP_WEIGHT = Number(process.env.SEARCH_WEIGHT_REP || 0.3);
+const REP_WEIGHT = Number(process.env.SEARCH_WEIGHT_REP || 0.25);
+const AVAIL_WEIGHT = Number(process.env.SEARCH_WEIGHT_AVAIL || 0.2);
+const HEARTBEAT_TTL_MS = Number(process.env.HEARTBEAT_TTL_MS || 60_000);
 
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
@@ -69,6 +71,12 @@ const registerSchema = z.object({
 const reputationSchema = z.object({
   did: z.string(),
   reputation: z.number().min(0).max(1),
+});
+
+const availabilitySchema = z.object({
+  did: z.string(),
+  availability: z.number().min(0).max(1),
+  last_seen: z.string().datetime().optional(),
 });
 
 const apiGuard = async (request: any, reply: any) => {
@@ -175,6 +183,23 @@ app.post(
   }
 );
 
+app.post(
+  "/v1/agent/availability",
+  { preHandler: [rateLimitGuard, apiGuard] },
+  async (request, reply) => {
+    const parse = availabilitySchema.safeParse(request.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid payload" });
+    }
+    const { did, availability, last_seen } = parse.data;
+    await pool.query(
+      `update agents set availability_score = $1, last_seen = coalesce($2, now()) where did = $3`,
+      [availability, last_seen ? new Date(last_seen) : new Date(), did]
+    );
+    return reply.send({ ok: true, did, availability });
+  }
+);
+
 app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
@@ -200,12 +225,15 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
     }
   }
 
-  const results = hits.map((hit: any) => {
-    const agentDid = typeof hit.payload?.agentDid === "string" ? hit.payload.agentDid : undefined;
-    const capabilityId =
-      typeof hit.payload?.capabilityId === "string" ? hit.payload.capabilityId : undefined;
-    const description =
-      typeof hit.payload?.description === "string" ? hit.payload.description : undefined;
+  const now = Date.now();
+
+  const results = hits
+    .map((hit: any) => {
+      const agentDid = typeof hit.payload?.agentDid === "string" ? hit.payload.agentDid : undefined;
+      const capabilityId =
+        typeof hit.payload?.capabilityId === "string" ? hit.payload.capabilityId : undefined;
+      const description =
+        typeof hit.payload?.description === "string" ? hit.payload.description : undefined;
     const tags = Array.isArray(hit.payload?.tags) ? hit.payload.tags : undefined;
     const reputation =
       typeof hit.payload?.reputation === "number"
@@ -214,12 +242,26 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
 
     const repScore = Math.max(0, Math.min(1, Number(reputation ?? 0)));
     const vectorScore = typeof hit.score === "number" ? hit.score : 0;
-    const combinedScore = SIM_WEIGHT * vectorScore + REP_WEIGHT * repScore;
+    const availabilityScore =
+      typeof agents[agentDid || ""]?.last_seen !== "undefined"
+        ? (() => {
+            const lastSeen = agents[agentDid || ""]?.last_seen as any;
+            const ts = lastSeen ? new Date(lastSeen).getTime() : 0;
+            const stale = now - ts > HEARTBEAT_TTL_MS * 2;
+            return stale ? 0 : Math.max(0, Math.min(1, Number(agents[agentDid || ""]?.availability_score || 0)));
+          })()
+        : null;
+
+    const combinedScore =
+      SIM_WEIGHT * vectorScore +
+      REP_WEIGHT * repScore +
+      AVAIL_WEIGHT * (availabilityScore ?? 0);
 
     return {
       score: combinedScore,
       vectorScore,
       reputationScore: repScore,
+      availabilityScore: availabilityScore ?? null,
       agentDid,
       capabilityId,
       description,
@@ -227,7 +269,9 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       reputation: reputation ?? null,
       agent: agentDid ? agents[agentDid] || null : null,
     };
-  }).sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
+  })
+    .filter((r: any) => (r.availabilityScore ?? 0) > 0)
+    .sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
 
   return reply.send({ results });
 });

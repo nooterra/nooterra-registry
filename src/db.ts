@@ -13,6 +13,8 @@ export async function migrate() {
       name text,
       endpoint text,
       reputation numeric default 0,
+      availability_score numeric default 0,
+      last_seen timestamptz,
       created_at timestamptz default now()
     );
   `);
