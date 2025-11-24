@@ -13,6 +13,8 @@ dotenv.config();
 const API_KEY = process.env.REGISTRY_API_KEY;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
+const SIM_WEIGHT = Number(process.env.SEARCH_WEIGHT_SIM || 0.7);
+const REP_WEIGHT = Number(process.env.SEARCH_WEIGHT_REP || 0.3);
 
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
@@ -62,6 +64,11 @@ const registerSchema = z.object({
   name: z.string().optional(),
   endpoint: z.string().optional(),
   capabilities: z.array(capabilitySchema).min(1).max(25),
+});
+
+const reputationSchema = z.object({
+  did: z.string(),
+  reputation: z.number().min(0).max(1),
 });
 
 const apiGuard = async (request: any, reply: any) => {
@@ -150,6 +157,24 @@ const searchSchema = z.object({
   limit: z.number().int().positive().max(50).optional(),
 });
 
+app.post(
+  "/v1/agent/reputation",
+  { preHandler: [rateLimitGuard, apiGuard] },
+  async (request, reply) => {
+    const parse = reputationSchema.safeParse(request.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid payload" });
+    }
+    const { did, reputation } = parse.data;
+    const clamped = Math.max(0, Math.min(1, reputation));
+    await pool.query(
+      `update agents set reputation = $1 where did = $2`,
+      [clamped, did]
+    );
+    return reply.send({ ok: true, did, reputation: clamped });
+  }
+);
+
 app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
@@ -187,8 +212,14 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
         ? hit.payload.reputation
         : hit.payload?.rep || (agentDid ? agents[agentDid]?.reputation ?? null : null);
 
+    const repScore = Math.max(0, Math.min(1, Number(reputation ?? 0)));
+    const vectorScore = typeof hit.score === "number" ? hit.score : 0;
+    const combinedScore = SIM_WEIGHT * vectorScore + REP_WEIGHT * repScore;
+
     return {
-      score: hit.score,
+      score: combinedScore,
+      vectorScore,
+      reputationScore: repScore,
       agentDid,
       capabilityId,
       description,
@@ -196,7 +227,7 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       reputation: reputation ?? null,
       agent: agentDid ? agents[agentDid] || null : null,
     };
-  });
+  }).sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
 
   return reply.send({ results });
 });
