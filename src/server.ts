@@ -59,6 +59,7 @@ const capabilitySchema = z.object({
   capabilityId: z.string().optional(),
   description: z.string().min(1).max(500),
   tags: z.array(z.string().max(64)).max(10).optional(),
+  output_schema: z.record(z.any()).optional(),
 });
 
 const registerSchema = z.object({
@@ -119,7 +120,7 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       .status(400)
       .send({ error: parse.error.flatten(), message: "Invalid register payload" });
   }
-  const { did, name, endpoint, capabilities } = parse.data;
+    const { did, name, endpoint, capabilities } = parse.data;
 
   try {
     await pool.query(
@@ -144,9 +145,9 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       vector,
       });
       await pool.query(
-        `insert into capabilities (agent_did, capability_id, description, tags)
-       values ($1, $2, $3, $4)`,
-        [did, capId, cap.description, cap.tags || []]
+        `insert into capabilities (agent_did, capability_id, description, tags, output_schema)
+       values ($1, $2, $3, $4, $5)`,
+        [did, capId, cap.description, cap.tags || [], cap.output_schema || null]
       );
     }
     return reply.send({ ok: true, registered: capabilities.length });
@@ -200,6 +201,18 @@ app.post(
   }
 );
 
+app.get("/v1/capability/:id/schema", async (request, reply) => {
+  const capId = (request.params as any).id;
+  const res = await pool.query(
+    `select output_schema from capabilities where capability_id = $1 limit 1`,
+    [capId]
+  );
+  if (!res.rowCount) {
+    return reply.status(404).send({ error: "Not found" });
+  }
+  return reply.send(res.rows[0].output_schema || {});
+});
+
 app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
@@ -209,18 +222,25 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
   const vector = await embed(query);
   const hits = await searchCapabilities(vector, limit);
 
-  const agents: Record<string, { did: string; name: string | null; endpoint: string | null; reputation: number | null }> = {};
+  const agents: Record<string, { did: string; name: string | null; endpoint: string | null; reputation: number | null; availability_score: number | null; last_seen: Date | null }> = {};
   if (hits.length) {
     const dids = hits
       .map((h: any) => h.payload?.agentDid)
       .filter((v: unknown): v is string => typeof v === "string");
     if (dids.length) {
-      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null; reputation: number | null }>(
-        `select did, name, endpoint, reputation from agents where did = any($1::text[])`,
+      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null; reputation: number | null; availability_score: number | null; last_seen: Date | null }>(
+        `select did, name, endpoint, reputation, availability_score, last_seen from agents where did = any($1::text[])`,
         [dids]
       );
       rows.rows.forEach((row) => {
-        agents[row.did] = { did: row.did, name: row.name, endpoint: row.endpoint ?? null, reputation: row.reputation ?? null };
+        agents[row.did] = {
+          did: row.did,
+          name: row.name,
+          endpoint: row.endpoint ?? null,
+          reputation: row.reputation ?? null,
+          availability_score: row.availability_score ?? null,
+          last_seen: row.last_seen ?? null,
+        };
       });
     }
   }

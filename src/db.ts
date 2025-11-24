@@ -26,6 +26,7 @@ export async function migrate() {
       capability_id text,
       description text,
       tags text[],
+      output_schema jsonb,
       created_at timestamptz default now()
     );
   `);
