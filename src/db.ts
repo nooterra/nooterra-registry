@@ -44,4 +44,11 @@ export async function migrate() {
   await pool.query(`alter table agents add column if not exists acard_lineage text;`);
   await pool.query(`alter table agents add column if not exists acard_signature text;`);
   await pool.query(`alter table agents add column if not exists acard_raw jsonb;`);
+  
+  // Wallet address for agent developer payments
+  await pool.query(`alter table agents add column if not exists wallet_address text;`);
+  await pool.query(`create index if not exists agents_wallet_idx on agents(wallet_address) where wallet_address is not null;`);
+  
+  // Price per capability call (in NCR cents)
+  await pool.query(`alter table capabilities add column if not exists price_cents int default 10;`);
 }

@@ -95,6 +95,7 @@ const registerSchema = z.object({
   did: z.string(),
   name: z.string().optional(),
   endpoint: z.string().optional(),
+  walletAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(), // Agent's wallet for receiving payments
   capabilities: z.array(capabilitySchema).min(1).max(25),
   acard: acardSchema.optional(),
   acard_signature: z.string().optional(),
@@ -151,7 +152,7 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       .status(400)
       .send({ error: parse.error.flatten(), message: "Invalid register payload" });
   }
-  const { did, name, endpoint, capabilities, acard, acard_signature } = parse.data;
+  const { did, name, endpoint, walletAddress, capabilities, acard, acard_signature } = parse.data;
 
   // Normalize capability ids and schemas
   const normalizedCaps = capabilities.map((cap) => ({
@@ -211,17 +212,18 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
 
   try {
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      on conflict (did) do update set
        name = excluded.name,
        endpoint = excluded.endpoint,
        public_key = excluded.public_key,
+       wallet_address = coalesce(excluded.wallet_address, agents.wallet_address),
        acard_version = excluded.acard_version,
        acard_lineage = excluded.acard_lineage,
        acard_signature = excluded.acard_signature,
        acard_raw = excluded.acard_raw`,
-      [did, name || null, endpointToPersist, publicKey, acardVersion, acardLineage, acardSignature, acardRaw]
+      [did, name || null, endpointToPersist, publicKey, walletAddress?.toLowerCase() || null, acardVersion, acardLineage, acardSignature, acardRaw]
     );
 
     // replace capabilities for this agent
