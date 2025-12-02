@@ -15,6 +15,11 @@ export async function migrate() {
       reputation numeric default 0,
       availability_score numeric default 0,
       last_seen timestamptz,
+      public_key text,
+      acard_version integer,
+      acard_lineage text,
+      acard_signature text,
+      acard_raw jsonb,
       created_at timestamptz default now()
     );
   `);
@@ -32,4 +37,11 @@ export async function migrate() {
   `);
 
   await pool.query(`alter table agents add column if not exists reputation numeric default 0;`);
+  await pool.query(`alter table agents add column if not exists availability_score numeric default 0;`);
+  await pool.query(`alter table agents add column if not exists last_seen timestamptz;`);
+  await pool.query(`alter table agents add column if not exists public_key text;`);
+  await pool.query(`alter table agents add column if not exists acard_version integer;`);
+  await pool.query(`alter table agents add column if not exists acard_lineage text;`);
+  await pool.query(`alter table agents add column if not exists acard_signature text;`);
+  await pool.query(`alter table agents add column if not exists acard_raw jsonb;`);
 }
